@@ -1,0 +1,5 @@
+lvi
+inventory/
+config.yaml
+et-output/
+*.json

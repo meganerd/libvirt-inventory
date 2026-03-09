@@ -1,0 +1,15 @@
+# lvi configuration
+# Copy to config.yaml and edit for your environment.
+
+hypervisors:
+  - name: vmh01
+    uri: "qemu+ssh://root@vmh01/system"
+  - name: vmh02
+    uri: "qemu+ssh://root@vmh02/system"
+  - name: vmh03
+    uri: "qemu+ssh://root@vmh03/system"
+  # - name: pve01
+  #   uri: "qemu+ssh://root@pve01/system"
+
+# Directory for snapshots and generated HCL
+output_dir: "./inventory"
