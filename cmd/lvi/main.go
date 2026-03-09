@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/meganerd/libvirt-inventory/internal/config"
+	"github.com/meganerd/libvirt-inventory/internal/create"
 	"github.com/meganerd/libvirt-inventory/internal/drift"
 	"github.com/meganerd/libvirt-inventory/internal/hcl"
 	"github.com/meganerd/libvirt-inventory/internal/model"
@@ -28,6 +29,7 @@ func main() {
 	root.AddCommand(scanCmd())
 	root.AddCommand(driftCmd())
 	root.AddCommand(generateCmd())
+	root.AddCommand(createCmd())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -218,6 +220,146 @@ func generateCmd() *cobra.Command {
 			}
 		},
 	}
+}
+
+func createCmd() *cobra.Command {
+	var (
+		hvName    string
+		vcpu      int
+		memory    int
+		diskSize  int
+		imageURL  string
+		pool      string
+		network   string
+		user      string
+		sshKeys   []string
+		playbook  string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new VM on a hypervisor (never deletes — only creates)",
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg := loadConfig()
+
+			if hvName == "" {
+				fmt.Fprintln(os.Stderr, "Error: --hypervisor is required")
+				os.Exit(1)
+			}
+
+			// Resolve VM name from args
+			if len(args) == 0 {
+				fmt.Fprintln(os.Stderr, "Error: VM name is required as argument")
+				fmt.Fprintln(os.Stderr, "Usage: lvi create <vm-name> --hypervisor <name>")
+				os.Exit(1)
+			}
+			vmName := args[0]
+
+			hv, err := cfg.FindHypervisor(hvName)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			// Build spec from flags + config defaults
+			spec := &create.VMSpec{
+				Name:         vmName,
+				Hypervisor:   hv.Name,
+				URI:          hv.URI,
+				VCPUs:        firstNonZero(vcpu, cfg.Defaults.VCPUs),
+				MemoryMiB:    firstNonZero(memory, cfg.Defaults.MemoryMiB),
+				DiskSizeGB:   firstNonZero(diskSize, cfg.Defaults.DiskSizeGB),
+				BaseImageURL: firstNonEmpty(imageURL, cfg.Defaults.BaseImageURL),
+				Pool:         firstNonEmpty(pool, cfg.Defaults.Pool),
+				Network:      firstNonEmpty(network, cfg.Defaults.Network),
+				InstallUser:  firstNonEmpty(user, cfg.Defaults.InstallUser),
+				SSHKeys:      sshKeys,
+				Playbook:     playbook,
+			}
+
+			fmt.Printf("Creating VM %q on %s...\n\n", vmName, hv.Name)
+
+			result, err := create.CreateVM(spec)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "\nError: %v\n", err)
+				os.Exit(1)
+			}
+
+			fmt.Printf("\nVM created successfully!\n")
+			fmt.Printf("  Name:     %s\n", result.Name)
+			fmt.Printf("  IP:       %s\n", result.IP)
+			fmt.Printf("  User:     %s\n", result.User)
+			fmt.Printf("  Password: %s\n", result.Password)
+			fmt.Printf("  SSH:      ssh %s@%s\n", result.User, result.IP)
+
+			// Update inventory
+			fmt.Printf("\nUpdating inventory snapshot...\n")
+			hvResult, err := scanner.ScanHypervisor(hv.Name, hv.URI)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[WARN] Failed to update inventory: %v\n", err)
+				return
+			}
+
+			// Load existing snapshot or create new
+			snapPath := filepath.Join(cfg.OutputDir, "snapshot-latest.json")
+			var snap model.Snapshot
+			if data, err := os.ReadFile(snapPath); err == nil {
+				json.Unmarshal(data, &snap)
+			}
+			snap.Timestamp = time.Now().UTC()
+
+			// Replace or add hypervisor data
+			found := false
+			for i, h := range snap.Hypervisors {
+				if h.Name == hv.Name {
+					snap.Hypervisors[i] = *hvResult
+					found = true
+					break
+				}
+			}
+			if !found {
+				snap.Hypervisors = append(snap.Hypervisors, *hvResult)
+			}
+
+			if err := os.MkdirAll(cfg.OutputDir, 0755); err == nil {
+				if data, err := json.MarshalIndent(snap, "", "  "); err == nil {
+					os.WriteFile(snapPath, data, 0644)
+					fmt.Printf("Inventory updated: %s\n", snapPath)
+				}
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&hvName, "hypervisor", "", "target hypervisor name (required)")
+	cmd.Flags().IntVar(&vcpu, "vcpu", 0, "number of vCPUs (default: from config or 2)")
+	cmd.Flags().IntVar(&memory, "memory", 0, "memory in MiB (default: from config or 2048)")
+	cmd.Flags().IntVar(&diskSize, "disk-size", 0, "disk size in GB (default: from config or 20)")
+	cmd.Flags().StringVar(&imageURL, "image", "", "base cloud image URL")
+	cmd.Flags().StringVar(&pool, "pool", "", "storage pool name (default: from config or 'default')")
+	cmd.Flags().StringVar(&network, "network", "", "network name (default: from config or 'default')")
+	cmd.Flags().StringVar(&user, "user", "", "install user name (default: from config or 'install')")
+	cmd.Flags().StringArrayVar(&sshKeys, "ssh-key", nil, "SSH public key to inject (repeatable)")
+	cmd.Flags().StringVar(&playbook, "playbook", "", "Ansible playbook to run after VM creation")
+
+	return cmd
+}
+
+func firstNonZero(vals ...int) int {
+	for _, v := range vals {
+		if v != 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func writeHCL(path, content string) {

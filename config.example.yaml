@@ -13,3 +13,14 @@ hypervisors:
 
 # Directory for snapshots and generated HCL
 output_dir: "./inventory"
+
+# Default values for VM creation (lvi create)
+# CLI flags override these values.
+defaults:
+  vcpus: 2
+  memory_mib: 2048
+  disk_size_gb: 20
+  base_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+  install_user: "install"
+  pool: "default"
+  network: "default"

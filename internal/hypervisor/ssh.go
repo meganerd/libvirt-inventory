@@ -145,6 +145,95 @@ func (c *Client) NetworkActive(name string) (bool, error) {
 	return strings.Contains(string(out), "Active:         yes"), nil
 }
 
+// RunCommand executes an arbitrary shell command on the remote host via SSH.
+func (c *Client) RunCommand(command string) ([]byte, error) {
+	sshTarget := c.Host
+	if c.User != "" {
+		sshTarget = c.User + "@" + c.Host
+	}
+
+	cmd := exec.Command("ssh",
+		"-o", "ConnectTimeout=10",
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "BatchMode=yes",
+		sshTarget,
+		"bash", "-c", command,
+	)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("ssh command on %s: %w\nstderr: %s",
+			c.Host, err, stderr.String())
+	}
+
+	return stdout.Bytes(), nil
+}
+
+// WriteFileViaSSH writes content to a file on the remote host.
+func (c *Client) WriteFileViaSSH(remotePath, content string) error {
+	sshTarget := c.Host
+	if c.User != "" {
+		sshTarget = c.User + "@" + c.Host
+	}
+
+	cmd := exec.Command("ssh",
+		"-o", "ConnectTimeout=10",
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "BatchMode=yes",
+		sshTarget,
+		fmt.Sprintf("cat > '%s'", remotePath),
+	)
+	cmd.Stdin = strings.NewReader(content)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("writing %s on %s: %w\nstderr: %s",
+			remotePath, c.Host, err, stderr.String())
+	}
+
+	return nil
+}
+
+// DomainIPAddress gets the IP of a domain via virsh domifaddr.
+func (c *Client) DomainIPAddress(name string) (string, error) {
+	// Try lease source first (works with libvirt NAT networks)
+	out, err := c.Virsh("domifaddr", name, "--source", "lease")
+	if err == nil {
+		if ip := parseIPFromDomifaddr(string(out)); ip != "" {
+			return ip, nil
+		}
+	}
+
+	// Fall back to agent source (requires qemu-guest-agent)
+	out, err = c.Virsh("domifaddr", name, "--source", "agent")
+	if err == nil {
+		if ip := parseIPFromDomifaddr(string(out)); ip != "" {
+			return ip, nil
+		}
+	}
+
+	return "", fmt.Errorf("no IP found for domain %s", name)
+}
+
+// parseIPFromDomifaddr extracts the first non-loopback IPv4 from domifaddr output.
+func parseIPFromDomifaddr(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		// Format: Name MAC Protocol Address
+		for _, f := range fields {
+			if strings.Contains(f, "/") && !strings.HasPrefix(f, "127.") {
+				return strings.Split(f, "/")[0]
+			}
+		}
+	}
+	return ""
+}
+
 func filterEmpty(ss []string) []string {
 	var result []string
 	for _, s := range ss {
