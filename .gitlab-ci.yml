@@ -1,3 +1,6 @@
+include:
+  - template: Jobs/Dependency-Scanning.gitlab-ci.yml
+
 stages:
   - test
   - build
@@ -40,16 +43,40 @@ build:
     - test
     - lint
 
-security:
+security:govulncheck:
   stage: security
   image: golang:1.26
   script:
     - go install golang.org/x/vuln/cmd/govulncheck@latest
     - govulncheck ./...
-  allow_failure: true
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes:
-        - go.mod
-        - go.sum
+    - if: $CI_COMMIT_TAG
+
+security:nancy:
+  stage: security
+  image: golang:1.26
+  script:
+    - go list -json -deps ./... > deps.json
+    - go install github.com/sonatype-nexus-community/nancy@latest
+    - $GOPATH/bin/nancy sleuth < deps.json
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_TAG
+
+security:sbom:
+  stage: security
+  image: golang:1.26
+  script:
+    - go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+    - $GOPATH/bin/cyclonedx-gomod app -json -output sbom.json
+  artifacts:
+    paths:
+      - sbom.json
+    expire_in: 30 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_TAG
