@@ -8,6 +8,8 @@ linters:
     - unused
     - gosec
     - ineffassign
+    - depguard
+    - gomoddirectives
   settings:
     errcheck:
       exclude-functions:
@@ -25,6 +27,27 @@ linters:
     gosec:
       excludes:
         - G304
+    depguard:
+      rules:
+        main:
+          list-mode: lax
+          deny:
+            - pkg: "crypto/md5"
+              desc: "MD5 is cryptographically broken — use crypto/sha256"
+            - pkg: "crypto/sha1"
+              desc: "SHA-1 is cryptographically broken — use crypto/sha256"
+            - pkg: "io/ioutil"
+              desc: "Deprecated since Go 1.16 — use io and os packages"
+          allow:
+            - $gostd
+            - golang.org/x/
+            - github.com/spf13/cobra
+            - github.com/spf13/pflag
+            - github.com/inconshreveable/mousetrap
+            - gopkg.in/yaml.v3
+    gomoddirectives:
+      replace-local: true
+      replace-allow-list: []
   exclusions:
     rules:
       - path: _test\.go
