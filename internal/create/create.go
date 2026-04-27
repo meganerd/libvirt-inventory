@@ -22,12 +22,14 @@ type Result struct {
 func CreateVM(spec *VMSpec) (*Result, error) {
 	spec.ApplyDefaults()
 
-	// Generate password
-	pass, err := GeneratePassword(24)
-	if err != nil {
-		return nil, fmt.Errorf("generating password: %w", err)
+	// Generate password if not provided
+	if spec.InstallPass == "" {
+		pass, err := GeneratePassword(24)
+		if err != nil {
+			return nil, fmt.Errorf("generating password: %w", err)
+		}
+		spec.InstallPass = pass
 	}
-	spec.InstallPass = pass
 
 	client, err := hypervisor.NewClient(spec.URI)
 	if err != nil {

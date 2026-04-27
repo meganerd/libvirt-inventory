@@ -16,6 +16,7 @@ type VMSpec struct {
 	BaseImageURL  string
 	Pool          string
 	Network       string
+	Bridge        string // host bridge name (e.g. brlan0); mutually exclusive with Network
 	InstallUser   string
 	InstallPass   string // generated at runtime
 	SSHKeys       []string

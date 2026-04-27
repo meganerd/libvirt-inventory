@@ -231,8 +231,10 @@ func createCmd() *cobra.Command {
 		imageURL  string
 		pool      string
 		network   string
+		bridge    string
 		user      string
 		sshKeys   []string
+		password  string
 		playbook  string
 	)
 
@@ -261,6 +263,11 @@ func createCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
+			if bridge != "" && network != "" {
+				fmt.Fprintln(os.Stderr, "Error: --bridge and --network are mutually exclusive")
+				os.Exit(1)
+			}
+
 			// Build spec from flags + config defaults
 			spec := &create.VMSpec{
 				Name:         vmName,
@@ -272,8 +279,10 @@ func createCmd() *cobra.Command {
 				BaseImageURL: firstNonEmpty(imageURL, cfg.Defaults.BaseImageURL),
 				Pool:         firstNonEmpty(pool, cfg.Defaults.Pool),
 				Network:      firstNonEmpty(network, cfg.Defaults.Network),
+				Bridge:       bridge,
 				InstallUser:  firstNonEmpty(user, cfg.Defaults.InstallUser),
 				SSHKeys:      sshKeys,
+				InstallPass:  password,
 				Playbook:     playbook,
 			}
 
@@ -336,9 +345,11 @@ func createCmd() *cobra.Command {
 	cmd.Flags().IntVar(&diskSize, "disk-size", 0, "disk size in GB (default: from config or 20)")
 	cmd.Flags().StringVar(&imageURL, "image", "", "base cloud image URL")
 	cmd.Flags().StringVar(&pool, "pool", "", "storage pool name (default: from config or 'default')")
-	cmd.Flags().StringVar(&network, "network", "", "network name (default: from config or 'default')")
+	cmd.Flags().StringVar(&network, "network", "", "libvirt network name (default: from config or 'default')")
+	cmd.Flags().StringVar(&bridge, "bridge", "", "host bridge name (e.g. brlan0); uses bridge instead of libvirt network")
 	cmd.Flags().StringVar(&user, "user", "", "install user name (default: from config or 'install')")
 	cmd.Flags().StringArrayVar(&sshKeys, "ssh-key", nil, "SSH public key to inject (repeatable)")
+	cmd.Flags().StringVar(&password, "password", "", "install user password (default: auto-generated)")
 	cmd.Flags().StringVar(&playbook, "playbook", "", "Ansible playbook to run after VM creation")
 
 	return cmd

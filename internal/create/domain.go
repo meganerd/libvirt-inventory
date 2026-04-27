@@ -4,6 +4,19 @@ import "fmt"
 
 // GenerateDomainXML produces libvirt domain XML for virsh define.
 func GenerateDomainXML(spec *VMSpec, diskPath string, cloudinitPath string) string {
+	var netXML string
+	if spec.Bridge != "" {
+		netXML = fmt.Sprintf(`    <interface type='bridge'>
+      <source bridge='%s'/>
+      <model type='virtio'/>
+    </interface>`, spec.Bridge)
+	} else {
+		netXML = fmt.Sprintf(`    <interface type='network'>
+      <source network='%s'/>
+      <model type='virtio'/>
+    </interface>`, spec.Network)
+	}
+
 	return fmt.Sprintf(`<domain type='kvm'>
   <name>%s</name>
   <memory unit='MiB'>%d</memory>
@@ -33,10 +46,7 @@ func GenerateDomainXML(spec *VMSpec, diskPath string, cloudinitPath string) stri
       <target dev='sda' bus='sata'/>
       <readonly/>
     </disk>
-    <interface type='network'>
-      <source network='%s'/>
-      <model type='virtio'/>
-    </interface>
+%s
     <serial type='pty'>
       <target port='0'/>
     </serial>
@@ -53,5 +63,5 @@ func GenerateDomainXML(spec *VMSpec, diskPath string, cloudinitPath string) stri
   </devices>
 </domain>`,
 		spec.Name, spec.MemoryMiB, spec.VCPUs,
-		diskPath, cloudinitPath, spec.Network)
+		diskPath, cloudinitPath, netXML)
 }
