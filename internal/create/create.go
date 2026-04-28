@@ -58,8 +58,13 @@ func CreateVM(spec *VMSpec) (*Result, error) {
 		return nil, err
 	}
 
+	// Helper for writing files on hypervisor via stdin pipe
+	writeFunc := func(path, content string) error {
+		return client.WriteFileViaSSH(path, content)
+	}
+
 	fmt.Printf("[4/7] Generating cloud-init ISO...\n")
-	isoPath, err := GenerateCloudInitISO(spec, sshFunc)
+	isoPath, err := GenerateCloudInitISO(spec, sshFunc, writeFunc)
 	if err != nil {
 		return nil, err
 	}
