@@ -9,7 +9,13 @@ import (
 func RenderUserData(spec *VMSpec) string {
 	var keyLines string
 	for _, key := range spec.SSHKeys {
-		keyLines += fmt.Sprintf("      - %s\n", key)
+		// Split multiline values (e.g. from curl piped into --ssh-key)
+		for _, line := range strings.Split(key, "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				keyLines += fmt.Sprintf("      - %s\n", line)
+			}
+		}
 	}
 
 	return fmt.Sprintf(`#cloud-config
@@ -36,6 +42,8 @@ packages:
   - openssh-server
   - python3
   - sudo
+  - unzip
+  - curl
 
 runcmd:
   - systemctl enable --now qemu-guest-agent
@@ -50,32 +58,33 @@ func RenderMetaData(spec *VMSpec) string {
 
 // GenerateCloudInitISO creates a cloud-init NoCloud ISO on the remote hypervisor.
 // Returns the path to the ISO in the storage pool.
-func GenerateCloudInitISO(spec *VMSpec, sshFunc func(cmd string) ([]byte, error)) (string, error) {
+// writeFunc writes a file on the remote host via stdin pipe (no shell escaping).
+// sshFunc runs a shell command on the remote host.
+func GenerateCloudInitISO(spec *VMSpec, sshFunc func(cmd string) ([]byte, error), writeFunc func(path, content string) error) (string, error) {
 	userData := RenderUserData(spec)
 	metaData := RenderMetaData(spec)
 
 	tmpDir := fmt.Sprintf("/tmp/lvi-cloudinit-%s", spec.Name)
 	isoName := fmt.Sprintf("%s-cloudinit.iso", spec.Name)
 
-	// Escape single quotes in user-data for shell safety
-	escapedUserData := strings.ReplaceAll(userData, "'", "'\\''")
-	escapedMetaData := strings.ReplaceAll(metaData, "'", "'\\''")
+	// Create temp dir
+	if _, err := sshFunc(fmt.Sprintf("mkdir -p '%s'", tmpDir)); err != nil {
+		return "", fmt.Errorf("creating cloud-init temp dir: %w", err)
+	}
 
-	// Create temp dir, write files, generate ISO, clean up
-	script := fmt.Sprintf(`
-mkdir -p '%s' && \
-printf '%%s' '%s' > '%s/user-data' && \
-printf '%%s' '%s' > '%s/meta-data' && \
-genisoimage -output '%s/%s' -volid cidata -joliet -rock '%s/user-data' '%s/meta-data' 2>/dev/null && \
-echo '%s/%s'
-`,
-		tmpDir,
-		escapedUserData, tmpDir,
-		escapedMetaData, tmpDir,
-		tmpDir, isoName, tmpDir, tmpDir,
-		tmpDir, isoName,
+	// Write files via stdin pipe (avoids shell escaping issues)
+	if err := writeFunc(fmt.Sprintf("%s/user-data", tmpDir), userData); err != nil {
+		return "", fmt.Errorf("writing user-data: %w", err)
+	}
+	if err := writeFunc(fmt.Sprintf("%s/meta-data", tmpDir), metaData); err != nil {
+		return "", fmt.Errorf("writing meta-data: %w", err)
+	}
+
+	// Generate ISO
+	script := fmt.Sprintf(
+		"genisoimage -output '%s/%s' -volid cidata -joliet -rock '%s/user-data' '%s/meta-data' 2>/dev/null && echo '%s/%s'",
+		tmpDir, isoName, tmpDir, tmpDir, tmpDir, isoName,
 	)
-
 	out, err := sshFunc(script)
 	if err != nil {
 		return "", fmt.Errorf("generating cloud-init ISO: %w", err)

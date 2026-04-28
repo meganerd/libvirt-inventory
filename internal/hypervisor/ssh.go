@@ -157,7 +157,7 @@ func (c *Client) RunCommand(command string) ([]byte, error) {
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "BatchMode=yes",
 		sshTarget,
-		"bash", "-c", command,
+		command,
 	)
 
 	var stdout, stderr bytes.Buffer
@@ -220,15 +220,21 @@ func (c *Client) DomainIPAddress(name string) (string, error) {
 	return "", fmt.Errorf("no IP found for domain %s", name)
 }
 
-// parseIPFromDomifaddr extracts the first non-loopback IPv4 from domifaddr output.
+// parseIPFromDomifaddr extracts the first routable IPv4 from domifaddr output.
 func parseIPFromDomifaddr(output string) string {
 	for _, line := range strings.Split(output, "\n") {
 		fields := strings.Fields(line)
 		// Format: Name MAC Protocol Address
 		for _, f := range fields {
-			if strings.Contains(f, "/") && !strings.HasPrefix(f, "127.") {
-				return strings.Split(f, "/")[0]
+			if !strings.Contains(f, "/") {
+				continue
 			}
+			ip := strings.Split(f, "/")[0]
+			// Skip IPv4 loopback, IPv6 loopback, and IPv6 link-local
+			if strings.HasPrefix(ip, "127.") || ip == "::1" || strings.HasPrefix(ip, "fe80:") || strings.Contains(ip, ":") {
+				continue
+			}
+			return ip
 		}
 	}
 	return ""
